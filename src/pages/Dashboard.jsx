@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { db, storage } from "../firebase/config";
 import {
@@ -43,6 +44,7 @@ export default function Dashboard() {
   const speciesDropdownRef = useRef(null);
   const [isGenderDropdownOpen, setIsGenderDropdownOpen] = useState(false);
   const genderDropdownRef = useRef(null);
+  const [isCustomSpecies, setIsCustomSpecies] = useState(false);
   const [petForm, setPetForm] = useState({
     name: "", species: "Dog", breed: "", age: "", gender: "Male",
     weight: "", description: "",
@@ -164,6 +166,7 @@ export default function Dashboard() {
         status: "Available",
       });
       setPetForm({ name: "", species: "Dog", breed: "", age: "", gender: "Male", weight: "", description: "" });
+    setIsCustomSpecies(false);
       setPetPhoto(null);
       setPhotoName("");
       setShowAddPet(false);
@@ -252,6 +255,18 @@ export default function Dashboard() {
         {/* ── Add Pet Form ── */}
         {showAddPet && (
           <div className="add-pet-form">
+            <style>{`
+              .custom-number-input input[type="number"]::-webkit-inner-spin-button,
+              .custom-number-input input[type="number"]::-webkit-outer-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+              }
+              .custom-number-input input[type="number"] {
+                -moz-appearance: textfield;
+              }
+              .stepper-btn:hover { background: var(--clr-border) !important; }
+              .stepper-btn:active { transform: scale(0.95); }
+            `}</style>
             <div className="form-section-title">Add a New Pet</div>
             <form onSubmit={handleAddPet}>
               <div className="add-pet-grid">
@@ -263,34 +278,78 @@ export default function Dashboard() {
                 ].map(f => (
                   <div className="form-group" key={f.name}>
                     <label>{f.label}</label>
-                    <input
-                      type={f.type} min={f.type === "number" ? 0 : undefined}
-                      placeholder={f.placeholder}
-                      value={petForm[f.name]}
-                      onChange={e => setPetForm({ ...petForm, [f.name]: e.target.value })}
-                      required
-                    />
+                    {f.type === "number" ? (
+                      <div className="custom-number-input" style={{ display: "flex", gap: "8px" }}>
+                        <button 
+                          type="button" 
+                          className="stepper-btn"
+                          onClick={() => setPetForm({ ...petForm, [f.name]: Math.max(0, (Number(petForm[f.name]) || 0) - 1) })}
+                          style={{ width: "42px", flexShrink: 0, borderRadius: "8px", border: "1px solid var(--clr-border)", background: "var(--clr-surface)", cursor: "pointer", fontSize: "1.4rem", color: "var(--clr-text)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}
+                        >−</button>
+                        <input
+                          type="number" min="0"
+                          placeholder={f.placeholder}
+                          value={petForm[f.name]}
+                          onChange={e => setPetForm({ ...petForm, [f.name]: e.target.value })}
+                          required
+                          style={{ textAlign: "center" }}
+                        />
+                        <button 
+                          type="button" 
+                          className="stepper-btn"
+                          onClick={() => setPetForm({ ...petForm, [f.name]: (Number(petForm[f.name]) || 0) + 1 })}
+                          style={{ width: "42px", flexShrink: 0, borderRadius: "8px", border: "1px solid var(--clr-border)", background: "var(--clr-surface)", cursor: "pointer", fontSize: "1.4rem", color: "var(--clr-text)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}
+                        >+</button>
+                      </div>
+                    ) : (
+                      <input
+                        type={f.type}
+                        placeholder={f.placeholder}
+                        value={petForm[f.name]}
+                        onChange={e => setPetForm({ ...petForm, [f.name]: e.target.value })}
+                        required
+                      />
+                    )}
                   </div>
                 ))}
                 <div className="form-group" ref={speciesDropdownRef}>
                   <label>Species</label>
                   <div className={`custom-form-dropdown ${isSpeciesDropdownOpen ? "open" : ""}`}>
                     <button type="button" className="form-dropdown-trigger" onClick={() => setIsSpeciesDropdownOpen(!isSpeciesDropdownOpen)}>
-                      {petForm.species}
+                    {isCustomSpecies ? "Other" : petForm.species}
                       <svg className="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                     </button>
                     <div className="form-dropdown-menu">
-                      {["Dog","Cat","Rabbit","Guinea Pig","Hamster","Bird","Fish","Turtle"].map(s => (
+                    {["Dog","Cat","Rabbit","Guinea Pig","Hamster","Bird","Fish","Turtle","Other"].map(s => (
                         <div 
                           key={s} 
-                          className={`form-dropdown-item ${petForm.species === s ? "selected" : ""}`}
-                          onClick={() => { setPetForm({ ...petForm, species: s }); setIsSpeciesDropdownOpen(false); }}
+                        className={`form-dropdown-item ${(!isCustomSpecies && petForm.species === s) || (isCustomSpecies && s === "Other") ? "selected" : ""}`}
+                        onClick={() => { 
+                          if (s === "Other") {
+                            setIsCustomSpecies(true);
+                            setPetForm({ ...petForm, species: "" });
+                          } else {
+                            setIsCustomSpecies(false);
+                            setPetForm({ ...petForm, species: s });
+                          }
+                          setIsSpeciesDropdownOpen(false); 
+                        }}
                         >
                           {s}
                         </div>
                       ))}
                     </div>
                   </div>
+                {isCustomSpecies && (
+                  <input 
+                    type="text" 
+                    placeholder="Please specify species..." 
+                    value={petForm.species} 
+                    onChange={e => setPetForm({ ...petForm, species: e.target.value })} 
+                    style={{ marginTop: "8px" }}
+                    required 
+                  />
+                )}
                 </div>
                 <div className="form-group" ref={genderDropdownRef}>
                   <label>Gender</label>
@@ -379,7 +438,12 @@ export default function Dashboard() {
                 {pets.map((pet, index) => (
                   <tr key={pet.id}>
                     <td style={{ color: "var(--clr-muted)" }}>{index + 1}</td>
-                    <td><strong>{pet.name}</strong></td>
+                    <td>
+                      <Link to={`/pet/${pet.id}`} 
+                        style={{ color: "var(--clr-accent)", fontWeight: 500 }}>
+                        {pet.name}
+                      </Link>
+                    </td>
                     <td><span className="badge badge-accent">{pet.species}</span></td>
                     <td style={{ color: "var(--clr-muted2)" }}>{pet.breed}</td>
                     <td style={{ color: "var(--clr-muted2)" }}>{pet.age} yr{pet.age !== 1 ? "s" : ""}</td>
@@ -423,7 +487,12 @@ export default function Dashboard() {
                 {adoptions.map((ad, index) => (
                   <tr key={ad.id}>
                     <td style={{ color: "var(--clr-muted)" }}>{index + 1}</td>
-                    <td><strong>{ad.pet?.name || ad.petID}</strong></td>
+                    <td>
+                      <Link to={`/pet/${ad.petID}`} 
+                        style={{ color: "var(--clr-accent)", fontWeight: 500 }}>
+                        {ad.pet?.name || ad.petID}
+                      </Link>
+                    </td>
                     <td>
                       <div style={{ fontWeight: 500 }}>{ad.adopterName || ad.adopterID}</div>
                       {ad.adopterEmail && (
