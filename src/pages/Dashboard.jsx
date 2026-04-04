@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { db, storage } from "../firebase/config";
 import {
@@ -8,86 +8,121 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../styles/dashboard.css";
 
+function AnimatedNumber({ value }) {
+  const [count, setCount] = useState(0);
+  const prevValue = useRef(0);
+
+  useEffect(() => {
+    const start = prevValue.current;
+    const end = parseInt(value, 10) || 0;
+    if (start === end) { setCount(end); return; }
+    
+    let startTimestamp = null;
+    const step = (timestamp) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / 1200, 1);
+      const easeOut = 1 - Math.pow(1 - progress, 4);
+      setCount(Math.floor(easeOut * (end - start) + start));
+      if (progress < 1) window.requestAnimationFrame(step);
+      else { setCount(end); prevValue.current = end; }
+    };
+    window.requestAnimationFrame(step);
+  }, [value]);
+  return <>{count}</>;
+}
+
 export default function Dashboard() {
   const { currentUser } = useAuth();
-  const [pets, setPets] = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [pets,      setPets]      = useState([]);
   const [adoptions, setAdoptions] = useState([]);
-  const [profile, setProfile] = useState({});
+  const [profile,   setProfile]   = useState({});
   const [editingProfile, setEditingProfile] = useState(false);
-  const [showAddPet, setShowAddPet] = useState(false);
+  const [showAddPet,     setShowAddPet]     = useState(false);
+  const [isSpeciesDropdownOpen, setIsSpeciesDropdownOpen] = useState(false);
+  const speciesDropdownRef = useRef(null);
+  const [isGenderDropdownOpen, setIsGenderDropdownOpen] = useState(false);
+  const genderDropdownRef = useRef(null);
   const [petForm, setPetForm] = useState({
     name: "", species: "Dog", breed: "", age: "", gender: "Male",
     weight: "", description: "",
   });
-  const [petPhoto, setPetPhoto] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState("pets");
+  const [petPhoto,    setPetPhoto]    = useState(null);
+  const [photoName,   setPhotoName]   = useState("");
+  const [saving,      setSaving]      = useState(false);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [activeTab,   setActiveTab]   = useState("pets");
+
+  useEffect(() => { loadData(); }, [currentUser, activeTab]);
 
   useEffect(() => {
-    loadData();
-  }, [currentUser, activeTab]);
+    function handleClickOutside(event) {
+      if (speciesDropdownRef.current && !speciesDropdownRef.current.contains(event.target)) {
+        setIsSpeciesDropdownOpen(false);
+      }
+      if (genderDropdownRef.current && !genderDropdownRef.current.contains(event.target)) {
+        setIsGenderDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   async function loadData() {
     if (!currentUser) return;
+    setRefreshing(true);
     try {
-    // Load shelter profile
-    const snap = await getDoc(doc(db, "shelters", currentUser.uid));
-    if (snap.exists()) setProfile(snap.data());
-    // Load pets
-    const petsSnap = await getDocs(query(collection(db, "pets"), where("shelterID", "==", currentUser.uid)));
-    const petsData = petsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    setPets(petsData);
-    
-    // Load adoptions specifically for this shelter
-    const adSnap = await getDocs(query(collection(db, "adoptions"), where("shelterID", "==", currentUser.uid)));
-    let adData = adSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const snap = await getDoc(doc(db, "shelters", currentUser.uid));
+      if (snap.exists()) setProfile(snap.data());
 
-    // Fallback for older adoptions that might be missing the shelterID
-    const petIDs = petsData.map(p => p.id);
-    if (petIDs.length > 0) {
-      try {
-        // Split petIDs into chunks of 10 to comply with Firestore's 'in' query limit
+      const petsSnap = await getDocs(
+        query(collection(db, "pets"), where("shelterID", "==", currentUser.uid))
+      );
+      const petsData = petsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPets(petsData);
+
+      const adSnap = await getDocs(
+        query(collection(db, "adoptions"), where("shelterID", "==", currentUser.uid))
+      );
+      let adData = adSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const petIDs = petsData.map(p => p.id);
+      if (petIDs.length > 0) {
         for (let i = 0; i < petIDs.length; i += 10) {
           const chunk = petIDs.slice(i, i + 10);
           const chunkSnap = await getDocs(query(collection(db, "adoptions"), where("petID", "in", chunk)));
           chunkSnap.docs.forEach(d => {
-            if (!adData.find(existing => existing.id === d.id)) {
-              adData.push({ id: d.id, ...d.data() });
-            }
+            if (!adData.find(e => e.id === d.id)) adData.push({ id: d.id, ...d.data() });
           });
         }
-      } catch (err) {
-        console.warn("Fallback query failed. Older adoptions might not be shown.", err);
       }
-    }
-    
-    // Fetch adopter emails
-    const adopterIds = [...new Set(adData.map(a => a.adopterID).filter(Boolean))];
-    const adoptersMap = {};
-    await Promise.all(adopterIds.map(async (uid) => {
-      try {
-        const snap = await getDoc(doc(db, "adopters", uid));
-        if (snap.exists()) adoptersMap[uid] = snap.data();
-      } catch (err) {
-        console.error("Failed to fetch adopter details", err);
-      }
-    }));
 
-    // Enrich with pet details and adopter details
-    const enrichedAdoptions = adData.map(ad => {
-      const pet = petsData.find(p => p.id === ad.petID);
-      return { ...ad, pet, adopterEmail: adoptersMap[ad.adopterID]?.email || "" };
-    });
-    setAdoptions(enrichedAdoptions);
+      const adopterIds = [...new Set(adData.map(a => a.adopterID).filter(Boolean))];
+      const adoptersMap = {};
+      await Promise.all(adopterIds.map(async uid => {
+        try {
+          const s = await getDoc(doc(db, "adopters", uid));
+          if (s.exists()) adoptersMap[uid] = s.data();
+        } catch {}
+      }));
+
+      const enriched = adData.map(ad => ({
+        ...ad,
+        pet: petsData.find(p => p.id === ad.petID),
+        adopterEmail: adoptersMap[ad.adopterID]?.email || "",
+      }));
+      setAdoptions(enriched);
     } catch (err) {
-      console.error("Error loading dashboard data:", err);
+      console.error(err);
     }
+    setLoading(false);
+    setRefreshing(false);
   }
 
   async function saveProfile(e) {
     e.preventDefault();
     await updateDoc(doc(db, "shelters", currentUser.uid), profile);
-    await updateDoc(doc(db, "users", currentUser.uid), { name: profile.name });
+    await updateDoc(doc(db, "users",    currentUser.uid), { name: profile.name });
     setEditingProfile(false);
   }
 
@@ -105,15 +140,16 @@ export default function Dashboard() {
         ...petForm,
         age: Number(petForm.age),
         weight: Number(petForm.weight),
-        shelterID: currentUser.uid,
-        shelterCity: profile.city || "",
-        shelterName: profile.name || "",
+        shelterID:   currentUser.uid,
+        shelterCity: profile.city  || "",
+        shelterName: profile.name  || "",
         photoURL,
         createdAt: new Date(),
         status: "Available",
       });
       setPetForm({ name: "", species: "Dog", breed: "", age: "", gender: "Male", weight: "", description: "" });
       setPetPhoto(null);
+      setPhotoName("");
       setShowAddPet(false);
       await loadData();
     } catch (err) {
@@ -130,79 +166,157 @@ export default function Dashboard() {
 
   async function updateAdoptionStatus(ad, status) {
     await updateDoc(doc(db, "adoptions", ad.id), { status });
-    
     if (status === "Approved") {
-      // Automatically update the pet's status to Adopted
       await updateDoc(doc(db, "pets", ad.petID), { status: "Adopted" });
-      
-      // Auto-reject any other pending applications for this same pet
-      const otherAdoptions = adoptions.filter(a => a.petID === ad.petID && a.id !== ad.id && a.status !== "Rejected");
-      for (const other of otherAdoptions) {
+      for (const other of adoptions.filter(a => a.petID === ad.petID && a.id !== ad.id && a.status !== "Rejected")) {
         await updateDoc(doc(db, "adoptions", other.id), { status: "Rejected" });
       }
-      alert("Application successfully approved!");
     }
     await loadData();
   }
 
+  const pendingCount = adoptions.filter(a => !a.status || a.status === "Pending").length;
+
+  const TABS = [
+    { key: "pets",      label: "Pets",       icon: "🐶", badge: pets.length },
+    { key: "adoptions", label: "Adoptions",  icon: "📥", badge: pendingCount > 0 ? pendingCount : null },
+    { key: "profile",   label: "Profile",    icon: "🏢" },
+  ];
+
   return (
     <div className="dashboard">
       <div className="container">
+
+        {/* ── Header ── */}
         <div className="dashboard-header">
-          <div>
-            <h1 className="dashboard-title">Shelter Dashboard</h1>
+          <div className="dashboard-header-left">
+            <div className="dashboard-eyebrow">Shelter Admin</div>
+            <h1 className="dashboard-title">Dashboard</h1>
             <p className="dashboard-subtitle">{profile.name || "Your shelter"}</p>
           </div>
-        <div style={{ display: "flex", gap: "12px" }}>
-          <button className="btn-outline" onClick={loadData}>↻ Refresh</button>
-          <button className="btn-primary" onClick={() => setShowAddPet(!showAddPet)}>
-            {showAddPet ? "✕ Cancel" : "+ Add Pet"}
-          </button>
-        </div>
+          <div className="dashboard-actions">
+            <button
+              className={`btn-refresh${refreshing ? " loading" : ""}`}
+              onClick={loadData}
+            >
+              <span className="refresh-icon">↻</span> Refresh
+            </button>
+            <button className="btn-primary" onClick={() => setShowAddPet(!showAddPet)}>
+              {showAddPet ? "✕ Cancel" : "+ Add Pet"}
+            </button>
+          </div>
         </div>
 
+        {/* ── Stats ── */}
         <div className="stats-row">
           <div className="stat-card">
-            <div className="number">{pets.length}</div>
-            <div className="label">Total Pets Listed</div>
+            <span className="stat-icon">🐶</span>
+            <div className="number">{loading ? <div className="skeleton skeleton-number" /> : <AnimatedNumber value={pets.length} />}</div>
+            <div className="label">Pets Listed</div>
           </div>
           <div className="stat-card">
-            <div className="number">{adoptions.length}</div>
-            <div className="label">Adoption Requests</div>
+            <span className="stat-icon">📥</span>
+            <div className="number">{loading ? <div className="skeleton skeleton-number" /> : <AnimatedNumber value={adoptions.length} />}</div>
+            <div className="label">Total Requests</div>
           </div>
           <div className="stat-card">
-            <div className="number">{adoptions.filter(a => a.status === "Approved").length}</div>
-            <div className="label">Approved Adoptions</div>
+            <span className="stat-icon">🎉</span>
+            <div className="number">{loading ? <div className="skeleton skeleton-number" /> : <AnimatedNumber value={adoptions.filter(a => a.status === "Approved").length} />}</div>
+            <div className="label">Approved</div>
           </div>
+          {(loading || pendingCount > 0) && (
+            <div className="stat-card">
+              <span className="stat-icon">⏱️</span>
+              <div className="number" style={{ color: "var(--clr-warning)" }}>{loading ? <div className="skeleton skeleton-number" /> : <AnimatedNumber value={pendingCount} />}</div>
+              <div className="label">Pending Review</div>
+            </div>
+          )}
         </div>
 
-        {/* Add Pet Form */}
+        {/* ── Add Pet Form ── */}
         {showAddPet && (
-          <div className="add-pet-form" style={{ marginBottom: "32px" }}>
-            <h2 className="section-title">Add a New Pet</h2>
+          <div className="add-pet-form">
+            <div className="form-section-title">Add a New Pet</div>
             <form onSubmit={handleAddPet}>
               <div className="add-pet-grid">
-                <div className="form-group"><label>Pet Name</label>
-                  <input placeholder="e.g. Max" value={petForm.name} onChange={e => setPetForm({ ...petForm, name: e.target.value })} required /></div>
-                <div className="form-group"><label>Species</label>
-                  <select value={petForm.species} onChange={e => setPetForm({ ...petForm, species: e.target.value })}>
-                    {["Dog","Cat","Rabbit","Guinea Pig","Hamster","Bird","Fish","Turtle"].map(s => <option key={s}>{s}</option>)}
-                  </select></div>
-                <div className="form-group"><label>Breed</label>
-                  <input placeholder="e.g. Labrador" value={petForm.breed} onChange={e => setPetForm({ ...petForm, breed: e.target.value })} required /></div>
-                <div className="form-group"><label>Age (years)</label>
-                  <input type="number" min="0" value={petForm.age} onChange={e => setPetForm({ ...petForm, age: e.target.value })} required /></div>
-                <div className="form-group"><label>Gender</label>
-                  <select value={petForm.gender} onChange={e => setPetForm({ ...petForm, gender: e.target.value })}>
-                    <option>Male</option><option>Female</option>
-                  </select></div>
-                <div className="form-group"><label>Weight (kg)</label>
-                  <input type="number" min="0" value={petForm.weight} onChange={e => setPetForm({ ...petForm, weight: e.target.value })} required /></div>
+                {[
+                  { label: "Pet Name", name: "name", placeholder: "e.g. Max", type: "text" },
+                  { label: "Breed",    name: "breed", placeholder: "e.g. Labrador", type: "text" },
+                  { label: "Age (years)", name: "age",    placeholder: "0", type: "number" },
+                  { label: "Weight (kg)", name: "weight", placeholder: "0", type: "number" },
+                ].map(f => (
+                  <div className="form-group" key={f.name}>
+                    <label>{f.label}</label>
+                    <input
+                      type={f.type} min={f.type === "number" ? 0 : undefined}
+                      placeholder={f.placeholder}
+                      value={petForm[f.name]}
+                      onChange={e => setPetForm({ ...petForm, [f.name]: e.target.value })}
+                      required
+                    />
+                  </div>
+                ))}
+                <div className="form-group" ref={speciesDropdownRef}>
+                  <label>Species</label>
+                  <div className={`custom-form-dropdown ${isSpeciesDropdownOpen ? "open" : ""}`}>
+                    <button type="button" className="form-dropdown-trigger" onClick={() => setIsSpeciesDropdownOpen(!isSpeciesDropdownOpen)}>
+                      {petForm.species}
+                      <svg className="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    <div className="form-dropdown-menu">
+                      {["Dog","Cat","Rabbit","Guinea Pig","Hamster","Bird","Fish","Turtle"].map(s => (
+                        <div 
+                          key={s} 
+                          className={`form-dropdown-item ${petForm.species === s ? "selected" : ""}`}
+                          onClick={() => { setPetForm({ ...petForm, species: s }); setIsSpeciesDropdownOpen(false); }}
+                        >
+                          {s}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="form-group" ref={genderDropdownRef}>
+                  <label>Gender</label>
+                  <div className={`custom-form-dropdown ${isGenderDropdownOpen ? "open" : ""}`}>
+                    <button type="button" className="form-dropdown-trigger" onClick={() => setIsGenderDropdownOpen(!isGenderDropdownOpen)}>
+                      {petForm.gender}
+                      <svg className="dropdown-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    <div className="form-dropdown-menu">
+                      {["Male", "Female"].map(g => (
+                        <div 
+                          key={g} 
+                          className={`form-dropdown-item ${petForm.gender === g ? "selected" : ""}`}
+                          onClick={() => { setPetForm({ ...petForm, gender: g }); setIsGenderDropdownOpen(false); }}
+                        >
+                          {g}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="form-group" style={{ marginBottom: "16px" }}><label>Description</label>
-                <textarea rows={3} placeholder="Describe the pet's personality..." value={petForm.description} onChange={e => setPetForm({ ...petForm, description: e.target.value })} required /></div>
-              <div className="form-group" style={{ marginBottom: "20px" }}><label>Photo (optional)</label>
-                <input type="file" accept="image/*" onChange={e => setPetPhoto(e.target.files[0])} /></div>
+              <div className="form-group" style={{ marginBottom: "16px" }}>
+                <label>Description</label>
+                <textarea rows={3} placeholder="Describe the pet's personality..."
+                  value={petForm.description}
+                  onChange={e => setPetForm({ ...petForm, description: e.target.value })}
+                  required />
+              </div>
+              <div className="form-group" style={{ marginBottom: "24px" }}>
+                <label>Photo</label>
+                <div className="file-upload-wrapper">
+                  <input type="file" accept="image/*" onChange={e => {
+                    setPetPhoto(e.target.files[0]);
+                    setPhotoName(e.target.files[0]?.name || "");
+                  }} />
+                  <div className="file-upload-display">
+                  <span>📸</span>
+                    {photoName ? photoName : "Click to upload a photo (optional)"}
+                  </div>
+                </div>
+              </div>
               <button className="btn-primary" type="submit" disabled={saving}>
                 {saving ? "Saving..." : "Add Pet Listing"}
               </button>
@@ -210,43 +324,62 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: "4px", marginBottom: "24px" }}>
-          {["pets","adoptions","profile"].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              style={{
-                padding: "8px 20px", borderRadius: "var(--radius-sm)",
-                background: activeTab === tab ? "var(--clr-accent)" : "var(--clr-card)",
-                border: "1px solid var(--clr-border)",
-                color: activeTab === tab ? "#fff" : "var(--clr-muted)",
-                textTransform: "capitalize", fontSize: "0.9rem",
-              }}>
-              {tab === "pets" ? "🐾 Pets" : tab === "adoptions" ? "📋 Adoptions" : "⚙️ Profile"}
+        {/* ── Tabs ── */}
+        <div className="tab-row">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              className={`tab-btn${activeTab === tab.key ? " active" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <span className="tab-icon">{tab.icon}</span>
+              {tab.label}
+              {tab.badge != null && (
+                <span className="tab-badge">{tab.badge}</span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* Pets Tab */}
+        {/* ── Pets Tab ── */}
         {activeTab === "pets" && (
           <div className="table-wrap">
             <table className="pets-table">
-              <thead><tr>
-                <th>Name</th><th>Species</th><th>Breed</th>
-                <th>Age</th><th>Gender</th><th>Weight</th><th>Status / Actions</th>
-              </tr></thead>
+              <thead>
+                <tr>
+                  <th>#</th><th>Name</th><th>Species</th><th>Breed</th>
+                  <th>Age</th><th>Gender</th><th>Weight</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
               <tbody>
-                {pets.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--clr-muted)", padding: "40px" }}>No pets listed yet. Add your first pet!</td></tr>}
-                {pets.map(pet => (
+                {pets.length === 0 && (
+                  <tr><td colSpan={9}>
+                    <div className="table-empty">
+                      <span className="empty-icon">🦴</span>
+                      No pets listed yet. Add your first pet above!
+                    </div>
+                  </td></tr>
+                )}
+                {pets.map((pet, index) => (
                   <tr key={pet.id}>
+                    <td style={{ color: "var(--clr-muted)" }}>{index + 1}</td>
                     <td><strong>{pet.name}</strong></td>
                     <td><span className="badge badge-accent">{pet.species}</span></td>
-                    <td>{pet.breed}</td>
-                    <td>{pet.age} yr{pet.age !== 1 ? "s" : ""}</td>
-                    <td>{pet.gender}</td>
-                    <td>{pet.weight} kg</td>
-                    <td style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                      <span className={`badge ${pet.status === 'Adopted' ? 'badge-success' : 'badge-accent'}`}>{pet.status || 'Available'}</span>
-                      <button className="btn-danger" onClick={() => deletePet(pet.id)} style={{ fontSize: "0.82rem", padding: "6px 14px" }}>Delete</button>
+                    <td style={{ color: "var(--clr-muted2)" }}>{pet.breed}</td>
+                    <td style={{ color: "var(--clr-muted2)" }}>{pet.age} yr{pet.age !== 1 ? "s" : ""}</td>
+                    <td style={{ color: "var(--clr-muted2)" }}>{pet.gender}</td>
+                    <td style={{ color: "var(--clr-muted2)" }}>{pet.weight} kg</td>
+                    <td>
+                      <span className={`badge ${pet.status === "Adopted" ? "badge-success" : "badge-info"}`}>
+                        {pet.status || "Available"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn-danger has-tooltip" data-tooltip="Delete pet listing" onClick={() => deletePet(pet.id)}>
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -255,38 +388,69 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Adoptions Tab */}
+        {/* ── Adoptions Tab ── */}
         {activeTab === "adoptions" && (
           <div className="table-wrap">
             <table className="pets-table">
-              <thead><tr><th>Pet Name</th><th>Adopter</th><th>Date</th><th>Status</th><th>Action</th></tr></thead>
+              <thead>
+                <tr><th>#</th><th>Pet</th><th>Adopter</th><th>Date</th><th>Status</th><th>Action</th></tr>
+              </thead>
               <tbody>
-                {adoptions.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--clr-muted)", padding: "40px" }}>No adoption requests yet.</td></tr>}
-                {adoptions.map(ad => (
+                {adoptions.length === 0 && (
+                  <tr><td colSpan={6}>
+                    <div className="table-empty">
+                      <span className="empty-icon">📭</span>
+                      No adoption requests yet.
+                    </div>
+                  </td></tr>
+                )}
+                {adoptions.map((ad, index) => (
                   <tr key={ad.id}>
+                    <td style={{ color: "var(--clr-muted)" }}>{index + 1}</td>
                     <td><strong>{ad.pet?.name || ad.petID}</strong></td>
                     <td>
-                      <div>{ad.adopterName || ad.adopterID}</div>
+                      <div style={{ fontWeight: 500 }}>{ad.adopterName || ad.adopterID}</div>
                       {ad.adopterEmail && (
-                        <a href={`mailto:${ad.adopterEmail}`} style={{ fontSize: "0.82rem", color: "var(--clr-primary)", textDecoration: "underline" }}>{ad.adopterEmail}</a>
+                        <a href={`mailto:${ad.adopterEmail}`}
+                          style={{ fontSize: "0.78rem", color: "var(--clr-info)", opacity: 0.85 }}
+                          onClick={e => e.stopPropagation()}>
+                          {ad.adopterEmail}
+                        </a>
                       )}
                     </td>
-                    <td>{ad.date?.toDate ? ad.date.toDate().toLocaleDateString() : new Date(ad.date).toLocaleDateString()}</td>
+                    <td style={{ color: "var(--clr-muted2)", fontSize: "0.85rem" }}>
+                      {ad.date?.toDate ? ad.date.toDate().toLocaleDateString() : new Date(ad.date).toLocaleDateString()}
+                    </td>
                     <td>
-                      <span className={`badge ${ad.status === "Approved" ? "badge-success" : ad.status === "Rejected" ? "" : "badge-warning"}`}
-                        style={ad.status === "Rejected" ? { background: "rgba(248,113,113,0.12)", color: "var(--clr-danger)" } : {}}>
+                      <span className={`badge ${
+                        ad.status === "Approved" ? "badge-success" :
+                        ad.status === "Rejected" ? "" :
+                        "badge-warning"
+                      }`} style={ad.status === "Rejected" ? {
+                        background: "rgba(240,112,112,0.1)",
+                        color: "var(--clr-danger)",
+                        border: "1px solid rgba(240,112,112,0.2)",
+                      } : {}}>
                         {ad.status || "Pending"}
                       </span>
                     </td>
                     <td>
                       {ad.status === "Approved" || ad.status === "Rejected" ? (
-                        <span style={{ fontSize: "0.85rem", color: "var(--clr-muted)", fontWeight: "500" }}>Resolved</span>
+                        <span style={{ fontSize: "0.82rem", color: "var(--clr-muted)", fontStyle: "italic" }}>Resolved</span>
                       ) : (
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <button className="btn-primary" onClick={() => updateAdoptionStatus(ad, "Approved")}
-                            style={{ padding: "6px 12px", fontSize: "0.82rem", background: "var(--clr-success)", borderColor: "var(--clr-success)" }}>Approve</button>
-                          <button className="btn-danger" onClick={() => updateAdoptionStatus(ad, "Rejected")}
-                            style={{ padding: "6px 12px", fontSize: "0.82rem" }}>Reject</button>
+                        <div className="table-actions">
+                          <button className="btn-primary has-tooltip"
+                            data-tooltip="Approve adoption request"
+                            style={{ padding: "6px 14px", fontSize: "0.82rem", background: "var(--clr-success)", boxShadow: "none" }}
+                            onClick={() => updateAdoptionStatus(ad, "Approved")}>
+                            Approve
+                          </button>
+                          <button className="btn-danger has-tooltip"
+                            data-tooltip="Reject adoption request"
+                            style={{ padding: "6px 14px", fontSize: "0.82rem" }}
+                            onClick={() => updateAdoptionStatus(ad, "Rejected")}>
+                            Reject
+                          </button>
                         </div>
                       )}
                     </td>
@@ -297,11 +461,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Profile Tab */}
+        {/* ── Profile Tab ── */}
         {activeTab === "profile" && (
           <div className="profile-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h2 className="section-title" style={{ margin: 0 }}>Shelter Profile</h2>
+            <div className="profile-header">
+              <h2 className="profile-title">Shelter Profile</h2>
               <button className="btn-outline" onClick={() => setEditingProfile(!editingProfile)}>
                 {editingProfile ? "Cancel" : "Edit Profile"}
               </button>
@@ -309,21 +473,41 @@ export default function Dashboard() {
             {editingProfile ? (
               <form onSubmit={saveProfile}>
                 <div className="profile-grid">
-                  {[["name","Shelter Name"],["phone","Phone"],["address","Address"],["city","City"],["state","State"],["cityPIN","PIN Code"]].map(([field, label]) => (
+                  {[
+                    ["name",    "Shelter Name"],
+                    ["phone",   "Phone"],
+                    ["address", "Address"],
+                    ["city",    "City"],
+                    ["state",   "State"],
+                    ["cityPIN", "PIN Code"],
+                  ].map(([field, label]) => (
                     <div className="form-group" key={field}>
                       <label>{label}</label>
-                      <input value={profile[field] || ""} onChange={e => setProfile({ ...profile, [field]: e.target.value })} />
+                      <input
+                        value={profile[field] || ""}
+                        onChange={e => setProfile({ ...profile, [field]: e.target.value })}
+                      />
                     </div>
                   ))}
                 </div>
-                <button className="btn-primary" type="submit" style={{ marginTop: "16px" }}>Save Changes</button>
+                <button className="btn-primary" type="submit" style={{ marginTop: "20px" }}>
+                  Save Changes
+                </button>
               </form>
             ) : (
               <div className="profile-grid">
-                {[["name","Shelter Name"],["phone","Phone"],["email","Email"],["address","Address"],["city","City"],["state","State"],["cityPIN","PIN Code"]].map(([field, label]) => (
-                  <div key={field}>
-                    <div style={{ fontSize: "0.82rem", color: "var(--clr-muted)", marginBottom: "4px" }}>{label}</div>
-                    <div>{profile[field] || "—"}</div>
+                {[
+                  ["name",    "Shelter Name"],
+                  ["phone",   "Phone"],
+                  ["email",   "Email"],
+                  ["address", "Address"],
+                  ["city",    "City"],
+                  ["state",   "State"],
+                  ["cityPIN", "PIN Code"],
+                ].map(([field, label]) => (
+                  <div className="profile-field" key={field}>
+                    <div className="field-label">{label}</div>
+                    <div className="field-value">{profile[field] || "—"}</div>
                   </div>
                 ))}
               </div>
