@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase/config";
 import {
   collection, getDocs, query, where,
-  doc, updateDoc, getDoc, deleteDoc
+  doc, updateDoc, getDoc, deleteDoc, onSnapshot
 } from "firebase/firestore";
 import "../styles/dashboard.css";
 
@@ -40,7 +40,18 @@ export default function AdopterDashboard() {
   const [activeTab,      setActiveTab]      = useState("adoptions");
   const [refreshing,     setRefreshing]     = useState(false);
 
-  useEffect(() => { loadData(); }, [currentUser]);
+  useEffect(() => { 
+    loadData(); 
+    
+    if (!currentUser) return;
+    // Listen for approval/rejection updates in real-time!
+    const q = query(collection(db, "adoptions"), where("adopterID", "==", currentUser.uid));
+    const unsubscribe = onSnapshot(q, () => {
+      loadData();
+    });
+    
+    return () => unsubscribe();
+  }, [currentUser]);
 
   async function loadData() {
     if (!currentUser) return;
@@ -63,8 +74,19 @@ export default function AdopterDashboard() {
 
   async function cancelAdoption(id) {
     if (!window.confirm("Are you sure you want to withdraw this adoption request?")) return;
-    await deleteDoc(doc(db, "adoptions", id));
-    await loadData();
+    
+    // Optimistically remove it from the UI so it disappears instantly for the adopter
+    setAdoptions(prev => prev.filter(ad => ad.id !== id));
+    
+    try {
+      // Permanently deleting it from Firestore ensures the shelter's 
+      // real-time listener will instantly erase it from their table as well!
+      await deleteDoc(doc(db, "adoptions", id));
+    } catch (err) {
+      console.error("Failed to cancel request:", err);
+      alert("Failed to withdraw request. Please try again.");
+      await loadData(); // Revert the UI if the database deletion fails
+    }
   }
 
   async function saveProfile(e) {
@@ -91,7 +113,7 @@ export default function AdopterDashboard() {
             <p className="dashboard-subtitle">Welcome back, {profile.name || "Adopter"} </p>
           </div>
           <div className="dashboard-actions">
-            <button className={`btn-refresh${refreshing ? " loading" : ""}`} onClick={loadData}>
+            <button className={`btn-refresh${refreshing ? " loading" : ""}`} onClick={() => window.location.reload()}>
               <span className="refresh-icon">↻</span> Refresh
             </button>
             <Link to="/">
@@ -143,7 +165,7 @@ export default function AdopterDashboard() {
           <div className="table-wrap">
             <table className="pets-table">
               <thead>
-                <tr><th>#</th><th>Pet</th><th>Species</th><th>Breed</th><th>Date Applied</th><th>Status</th><th>Action</th></tr>
+                <tr><th>#</th><th>Pet</th><th>Species</th><th>Shelter / Owner</th><th>Date Applied</th><th>Status</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {adoptions.length === 0 && (
@@ -165,7 +187,10 @@ export default function AdopterDashboard() {
                       </Link>
                     </td>
                     <td style={{ color: "var(--clr-muted2)" }}>{ad.pet?.species || "—"}</td>
-                    <td style={{ color: "var(--clr-muted2)" }}>{ad.pet?.breed   || "—"}</td>
+                    <td style={{ color: "var(--clr-muted2)" }}>
+                      <div style={{ fontWeight: 500, color: "var(--clr-text)" }}>{ad.pet?.shelterName || "—"}</div>
+                      {ad.pet?.shelterOwnerName && <div style={{ fontSize: "0.8rem", opacity: 0.85 }}>Owner: {ad.pet.shelterOwnerName}</div>}
+                    </td>
                     <td style={{ color: "var(--clr-muted2)", fontSize: "0.85rem" }}>
                       {ad.date?.toDate?.()?.toLocaleDateString() || ad.date}
                     </td>

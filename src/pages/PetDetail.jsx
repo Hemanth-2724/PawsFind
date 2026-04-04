@@ -107,7 +107,8 @@ export default function PetDetail() {
                 <div className="shelter-card-title">Shelter Information</div>
                 <div className="shelter-info-grid">
                   {[
-                    ["Name",  shelter.name],
+                    ["Shelter Name", shelter.name],
+                    ["Owner Name",   shelter.ownerName],
                     ["City",  shelter.city],
                     ["Phone", shelter.phone],
                     ["Email", shelter.email],

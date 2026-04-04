@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { db, storage } from "../firebase/config";
 import {
   collection, addDoc, getDocs, query, where,
-  doc, updateDoc, deleteDoc, getDoc,
+  doc, updateDoc, deleteDoc, getDoc, onSnapshot
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../styles/dashboard.css";
@@ -53,7 +53,18 @@ export default function Dashboard() {
   const [refreshing,  setRefreshing]  = useState(false);
   const [activeTab,   setActiveTab]   = useState("pets");
 
-  useEffect(() => { loadData(); }, [currentUser, activeTab]);
+  useEffect(() => { 
+    loadData(); 
+    
+    if (!currentUser) return;
+    // Listen for new adoption requests in real-time!
+    const q = query(collection(db, "adoptions"), where("shelterID", "==", currentUser.uid));
+    const unsubscribe = onSnapshot(q, () => {
+      loadData();
+    });
+    
+    return () => unsubscribe();
+  }, [currentUser, activeTab]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -88,12 +99,16 @@ export default function Dashboard() {
 
       const petIDs = petsData.map(p => p.id);
       if (petIDs.length > 0) {
-        for (let i = 0; i < petIDs.length; i += 10) {
-          const chunk = petIDs.slice(i, i + 10);
-          const chunkSnap = await getDocs(query(collection(db, "adoptions"), where("petID", "in", chunk)));
-          chunkSnap.docs.forEach(d => {
-            if (!adData.find(e => e.id === d.id)) adData.push({ id: d.id, ...d.data() });
-          });
+        try {
+          for (let i = 0; i < petIDs.length; i += 10) {
+            const chunk = petIDs.slice(i, i + 10);
+            const chunkSnap = await getDocs(query(collection(db, "adoptions"), where("petID", "in", chunk)));
+            chunkSnap.docs.forEach(d => {
+              if (!adData.find(e => e.id === d.id)) adData.push({ id: d.id, ...d.data() });
+            });
+          }
+        } catch (fallbackErr) {
+          console.warn("Fallback query failed, but skipping to prevent dashboard crash.", fallbackErr);
         }
       }
 
@@ -143,6 +158,7 @@ export default function Dashboard() {
         shelterID:   currentUser.uid,
         shelterCity: profile.city  || "",
         shelterName: profile.name  || "",
+        shelterOwnerName: profile.ownerName || "",
         photoURL,
         createdAt: new Date(),
         status: "Available",
@@ -197,7 +213,7 @@ export default function Dashboard() {
           <div className="dashboard-actions">
             <button
               className={`btn-refresh${refreshing ? " loading" : ""}`}
-              onClick={loadData}
+              onClick={() => window.location.reload()}
             >
               <span className="refresh-icon">↻</span> Refresh
             </button>
@@ -439,9 +455,9 @@ export default function Dashboard() {
                         <span style={{ fontSize: "0.82rem", color: "var(--clr-muted)", fontStyle: "italic" }}>Resolved</span>
                       ) : (
                         <div className="table-actions">
-                          <button className="btn-primary has-tooltip"
+                          <button className="btn-success has-tooltip"
                             data-tooltip="Approve adoption request"
-                            style={{ padding: "6px 14px", fontSize: "0.82rem", background: "var(--clr-success)", boxShadow: "none" }}
+                            style={{ padding: "6px 14px", fontSize: "0.82rem" }}
                             onClick={() => updateAdoptionStatus(ad, "Approved")}>
                             Approve
                           </button>
@@ -474,12 +490,13 @@ export default function Dashboard() {
               <form onSubmit={saveProfile}>
                 <div className="profile-grid">
                   {[
-                    ["name",    "Shelter Name"],
-                    ["phone",   "Phone"],
-                    ["address", "Address"],
-                    ["city",    "City"],
-                    ["state",   "State"],
-                    ["cityPIN", "PIN Code"],
+                    ["name",      "Shelter Name"],
+                    ["ownerName", "Shelter Owner Name"],
+                    ["phone",     "Phone"],
+                    ["address",   "Address"],
+                    ["city",      "City"],
+                    ["state",     "State"],
+                    ["cityPIN",   "PIN Code"],
                   ].map(([field, label]) => (
                     <div className="form-group" key={field}>
                       <label>{label}</label>
@@ -497,13 +514,14 @@ export default function Dashboard() {
             ) : (
               <div className="profile-grid">
                 {[
-                  ["name",    "Shelter Name"],
-                  ["phone",   "Phone"],
-                  ["email",   "Email"],
-                  ["address", "Address"],
-                  ["city",    "City"],
-                  ["state",   "State"],
-                  ["cityPIN", "PIN Code"],
+                  ["name",      "Shelter Name"],
+                  ["ownerName", "Shelter Owner Name"],
+                  ["phone",     "Phone"],
+                  ["email",     "Email"],
+                  ["address",   "Address"],
+                  ["city",      "City"],
+                  ["state",     "State"],
+                  ["cityPIN",   "PIN Code"],
                 ].map(([field, label]) => (
                   <div className="profile-field" key={field}>
                     <div className="field-label">{label}</div>

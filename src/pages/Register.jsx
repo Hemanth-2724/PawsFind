@@ -12,7 +12,7 @@ export default function Register() {
   const [form, setForm] = useState({
     name: "", email: "", password: "", phone: "",
     address: "", city: "", state: "", cityPIN: "",
-    shelterName: "",
+    shelterName: "", ownerName: "",
   });
 
   function handleChange(e) {
@@ -24,7 +24,7 @@ export default function Register() {
     setError(""); setLoading(true);
     try {
       const extraData = role === "shelter"
-        ? { name: form.shelterName, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone }
+        ? { name: form.shelterName, ownerName: form.ownerName, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone }
         : { name: form.name, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone };
       await register(form.email, form.password, role, extraData);
       navigate(role === "shelter" ? "/shelter-dashboard" : "/adopter-dashboard");
@@ -37,7 +37,7 @@ export default function Register() {
   async function handleGoogle() {
     try {
       const extraData = role === "shelter"
-        ? { name: form.shelterName, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone }
+        ? { name: form.shelterName, ownerName: form.ownerName, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone }
         : { name: form.name, address: form.address, city: form.city, state: form.state, cityPIN: form.cityPIN, phone: form.phone };
       await loginWithGoogle(role, extraData);
       navigate(role === "shelter" ? "/shelter-dashboard" : "/adopter-dashboard");
@@ -68,8 +68,12 @@ export default function Register() {
             <div><label>Full Name</label>
               <input name="name" placeholder="Your name" onChange={handleChange} required /></div>
           ) : (
-            <div><label>Shelter Name</label>
-              <input name="shelterName" placeholder="Shelter or organisation name" onChange={handleChange} required /></div>
+            <>
+              <div><label>Shelter Name</label>
+                <input name="shelterName" placeholder="Shelter or organisation name" onChange={handleChange} required /></div>
+              <div><label>Shelter Owner Name</label>
+                <input name="ownerName" placeholder="Shelter Owner's full name" onChange={handleChange} required /></div>
+            </>
           )}
           <div><label>Email</label>
             <input name="email" type="email" placeholder="email@example.com" onChange={handleChange} required /></div>
