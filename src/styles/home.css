@@ -1,0 +1,61 @@
+.hero {
+  padding: 80px 0 60px;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% -20%, rgba(232,132,90,0.15) 0%, transparent 65%);
+}
+.hero-label {
+  display: inline-block;
+  background: rgba(232,132,90,0.12);
+  color: var(--clr-accent);
+  border: 1px solid rgba(232,132,90,0.25);
+  padding: 5px 16px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+}
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1.15;
+  margin-bottom: 18px;
+  max-width: 700px;
+  margin-left: auto; margin-right: auto;
+}
+.hero h1 span { color: var(--clr-accent); }
+.hero-sub {
+  color: var(--clr-muted);
+  font-size: 1.05rem;
+  max-width: 500px;
+  margin: 0 auto 36px;
+}
+.filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 48px;
+}
+.filters input {
+  width: 280px;
+  background: var(--clr-card);
+  border-color: var(--clr-border);
+}
+.filters select {
+  width: 180px;
+  background: var(--clr-card);
+}
+.pets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+  padding-bottom: 80px;
+}
+.empty-state {
+  text-align: center;
+  padding: 80px 0;
+  color: var(--clr-muted);
+}
+.empty-state .emoji { font-size: 3rem; margin-bottom: 16px; }
