@@ -8,7 +8,6 @@ const SPECIES_EMOJI = {
   Fish: "🐟", Turtle: "🐢",
 };
 
-// Max age used for the age bar width (visual only)
 const MAX_AGE = 15;
 
 export default function PetCard({ pet }) {
@@ -21,13 +20,8 @@ export default function PetCard({ pet }) {
 
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
+      ([entry]) => { if (entry.isIntersecting) { setIsVisible(true); observer.disconnect(); } },
+      { threshold: 0.08 }
     );
     if (cardRef.current) observer.observe(cardRef.current);
     return () => observer.disconnect();
@@ -38,23 +32,20 @@ export default function PetCard({ pet }) {
       ref={cardRef}
       className={`pet-card${isAdopted ? " is-adopted" : ""}${isVisible ? " visible" : ""}`}
       onClick={() => navigate(`/pet/${pet.id}`)}
-      role="button"
-      tabIndex={0}
+      role="button" tabIndex={0}
       onKeyDown={e => e.key === "Enter" && navigate(`/pet/${pet.id}`)}
     >
-      {/* Image */}
+      {isAdopted && <div className="adopted-ribbon">Adopted ✓</div>}
+
       <div className="pet-card-img">
         <span className="pet-card-species-tag">{pet.species}</span>
-        <div className="pet-card-save" title="Save for later" onClick={e => e.stopPropagation()}>
-          🤍
-        </div>
+        <div className="pet-card-save" title="Save" onClick={e => e.stopPropagation()}>🤍</div>
         {pet.photoURL
           ? <img src={pet.photoURL} alt={pet.name} loading="lazy" />
           : <span className="emoji-placeholder">{SPECIES_EMOJI[pet.species] || "🐾"}</span>
         }
       </div>
 
-      {/* Body */}
       <div className="pet-card-body">
         <div className="pet-card-header">
           <h3 className="pet-card-name">{pet.name}</h3>
@@ -63,10 +54,9 @@ export default function PetCard({ pet }) {
 
         <div className="pet-card-meta">
           <span className="badge badge-purple">{pet.breed}</span>
-          <span className="badge badge-success">{pet.age} yr{pet.age !== 1 ? "s" : ""}</span>
+          <span className="badge badge-teal">{pet.age} yr{pet.age !== 1 ? "s" : ""}</span>
         </div>
 
-        {/* Age bar */}
         <div className="age-bar">
           <div className="age-bar-fill" style={{ width: `${agePercent}%` }} />
         </div>
@@ -74,12 +64,8 @@ export default function PetCard({ pet }) {
         <p className="pet-card-desc">{pet.description}</p>
 
         <div className="pet-card-footer">
-          <span className="pet-card-shelter">
-            📍 {pet.shelterCity || "Shelter"}
-          </span>
-          <span className="pet-card-cta">
-            View Details <span>→</span>
-          </span>
+          <span className="pet-card-shelter">📍 {pet.shelterCity || "Shelter"}</span>
+          <span className="pet-card-cta">View Details <span>→</span></span>
         </div>
       </div>
     </div>

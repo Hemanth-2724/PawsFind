@@ -2,12 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>pet-adoption-system</title>
+    
+    <!-- Auto-refresh once to ensure latest version is loaded -->
+    <script>
+      const APP_VERSION = "1.0.1"; // Change this number to force a new refresh on future updates
+      if (localStorage.getItem("pawsfind_version") !== APP_VERSION) {
+        localStorage.setItem("pawsfind_version", APP_VERSION);
+        const url = new URL(window.location.href);
+        url.searchParams.set('v', new Date().getTime()); // Forces absolute cache bypass
+        window.location.replace(url.toString());
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Automatically unregister any stuck service workers caching old designs -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) { registration.unregister(); }
+        }).catch(function(err) { console.log('Service Worker removal failed: ', err); });
+      }
+    </script>
   </body>
 </html>

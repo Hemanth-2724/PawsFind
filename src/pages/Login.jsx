@@ -10,6 +10,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -42,7 +43,13 @@ export default function Login() {
           <div><label>Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" required /></div>
           <div><label>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password" required /></div>
+            <div style={{ position: "relative" }}>
+              <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password" required style={{ width: "100%", paddingRight: "40px", boxSizing: "border-box" }} />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", fontSize: "1.1rem", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }} title={showPassword ? "Hide password" : "Show password"}>
+                {showPassword ? "🙈" : "👁️"}
+              </button>
+            </div>
+          </div>
           <button className="btn-primary" type="submit" disabled={loading} style={{ width: "100%", padding: "14px" }}>
             {loading ? "Signing in..." : "Sign In"}
           </button>

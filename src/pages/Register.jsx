@@ -9,6 +9,7 @@ export default function Register() {
   const [role, setRole] = useState("adopter");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({
     name: "", email: "", password: "", phone: "",
     address: "", city: "", state: "", cityPIN: "",
@@ -78,7 +79,13 @@ export default function Register() {
           <div><label>Email</label>
             <input name="email" type="email" placeholder="email@example.com" onChange={handleChange} required /></div>
           <div><label>Password</label>
-            <input name="password" type="password" placeholder="Min 6 characters" onChange={handleChange} required /></div>
+            <div style={{ position: "relative" }}>
+              <input name="password" type={showPassword ? "text" : "password"} placeholder="Min 6 characters" onChange={handleChange} required style={{ width: "100%", paddingRight: "40px", boxSizing: "border-box" }} />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", fontSize: "1.1rem", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }} title={showPassword ? "Hide password" : "Show password"}>
+                {showPassword ? "🙈" : "👁️"}
+              </button>
+            </div>
+          </div>
           <div><label>Phone</label>
             <input name="phone" placeholder="10-digit phone" onChange={handleChange} required /></div>
           <div><label>Address</label>
